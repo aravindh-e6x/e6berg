@@ -26,3 +26,5 @@ dist/*
 *.pyc
 *.whl
 *.tar.gz
+tmp/
+.idea/

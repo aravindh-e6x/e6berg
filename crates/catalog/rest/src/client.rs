@@ -284,20 +284,41 @@ pub(crate) async fn deserialize_catalog_response<R: DeserializeOwned>(
 
 /// Deserializes a unexpected catalog response into an error.
 pub(crate) async fn deserialize_unexpected_catalog_error(response: Response) -> Error {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let content_length = headers.get("content-length").and_then(|v| v.to_str().ok());
+    let url = response.url().clone();
+
+    eprintln!("⚠️  Before reading bytes: status={}, url={}, content-length={:?}",
+        status, url, content_length);
+
     let err = Error::new(
         ErrorKind::Unexpected,
         "Received response with unexpected status code",
     )
-    .with_context("status", response.status().to_string())
-    .with_context("headers", format!("{:?}", response.headers()));
+    .with_context("status", status.to_string())
+    .with_context("headers", format!("{:?}", headers))
+    .with_context("url", url.to_string());
 
-    let bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(err) => return err.into(),
-    };
+    // Try to read the response bytes
+    let bytes_result = response.bytes().await;
 
-    if bytes.is_empty() {
-        return err;
+    match bytes_result {
+        Ok(bytes) => {
+            eprintln!("⚠️  Response bytes (len={})", bytes.len());
+            let text = String::from_utf8_lossy(&bytes);
+            eprintln!("⚠️  Response text: {}", text);
+
+            if bytes.is_empty() {
+                eprintln!("⚠️  Iceberg REST catalog returned empty error response (status: {})", status);
+                return err;
+            }
+
+            err.with_context("json", text.to_string())
+        }
+        Err(e) => {
+            eprintln!("⚠️  Failed to read response bytes: {:?}", e);
+            err.with_context("error", format!("Failed to read response: {}", e))
+        }
     }
-    err.with_context("json", String::from_utf8_lossy(&bytes))
 }
