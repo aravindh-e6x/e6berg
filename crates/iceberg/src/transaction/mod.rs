@@ -61,6 +61,7 @@ mod snapshot;
 mod sort_order;
 mod update_location;
 mod update_properties;
+mod update_schema;
 mod update_statistics;
 mod upgrade_format_version;
 
@@ -86,6 +87,8 @@ use crate::transaction::update_properties::UpdatePropertiesAction;
 use crate::transaction::update_statistics::UpdateStatisticsAction;
 use crate::transaction::upgrade_format_version::UpgradeFormatVersionAction;
 use crate::{Catalog, Error, ErrorKind, TableCommit, TableRequirement, TableUpdate};
+
+pub use self::update_schema::UpdateSchemaAction;
 
 /// Table transaction.
 #[derive(Clone)]
@@ -168,6 +171,14 @@ impl Transaction {
     /// Update the statistics of table
     pub fn update_statistics(&self) -> UpdateStatisticsAction {
         UpdateStatisticsAction::new()
+    }
+
+    /// Update the schema of table
+    pub fn update_schema(&self) -> UpdateSchemaAction {
+        UpdateSchemaAction::new(
+            (**self.table.metadata().current_schema()).clone(),
+            self.table.metadata().last_column_id(),
+        )
     }
 
     /// Commit transaction.
