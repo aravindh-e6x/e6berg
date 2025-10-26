@@ -639,10 +639,47 @@ impl Catalog for GlueCatalog {
         ))
     }
 
-    async fn update_table(&self, _commit: TableCommit) -> Result<Table> {
-        Err(Error::new(
-            ErrorKind::FeatureUnsupported,
-            "Updating a table is not supported yet",
-        ))
+    async fn update_table(&self, commit: TableCommit) -> Result<Table> {
+        // Step 1: Load current table to get existing metadata
+        let current_table = self.load_table(commit.identifier()).await?;
+
+        // Step 2: Apply the commit to get new table with updated metadata
+        let new_table = commit.apply(current_table)?;
+        let new_metadata = new_table.metadata();
+
+        // Step 3: Get the new version (snapshot count) and create metadata location
+        let new_version = new_metadata.snapshots().count() as i32;
+        let location = new_metadata.location();
+        let metadata_location = create_metadata_location(location, new_version)?;
+
+        // Step 4: Write new metadata file to S3
+        self.file_io
+            .new_output(&metadata_location)?
+            .write(serde_json::to_vec(&*new_metadata)?.into())
+            .await?;
+
+        // Step 5: Convert to Glue table format
+        let glue_table = convert_to_glue_table(
+            new_table.identifier().name(),
+            metadata_location.clone(),
+            &*new_metadata,
+            new_metadata.properties(),
+            None,
+        )?;
+
+        // Step 6: Update Glue table via UpdateTable API
+        let db_name = validate_namespace(new_table.identifier().namespace())?;
+        let builder = self
+            .client
+            .0
+            .update_table()
+            .database_name(&db_name)
+            .table_input(glue_table);
+        let builder = with_catalog_id!(builder, self.config);
+
+        builder.send().await.map_err(from_aws_sdk_error)?;
+
+        // Step 7: Return updated table
+        Ok(new_table)
     }
 }
