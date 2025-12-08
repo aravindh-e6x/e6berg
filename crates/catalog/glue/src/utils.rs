@@ -214,7 +214,7 @@ pub(crate) fn get_default_table_location(
     let properties = namespace.properties();
 
     match properties.get(LOCATION) {
-        Some(location) => format!("{}/{}", location, table_name.as_ref()),
+        Some(location) => format!("{}/{}", location.trim_end_matches('/'), table_name.as_ref()),
         None => {
             let warehouse_location = warehouse.as_ref().trim_end_matches('/');
 
